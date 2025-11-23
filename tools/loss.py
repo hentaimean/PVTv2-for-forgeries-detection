@@ -52,8 +52,6 @@ class DiceLoss(nn.Module):
 
 
 class FocalLoss(nn.Module):
-    """Опционально: помогает при сильном дисбалансе классов."""
-
     def __init__(self, alpha=1, gamma=2, loss_weight=1.0, use_sigmoid=True):
         super().__init__()
         self.alpha = alpha
@@ -63,12 +61,13 @@ class FocalLoss(nn.Module):
 
     def forward(self, pred, target):
         if self.use_sigmoid:
-            prob = pred.sigmoid()
+            p = pred.sigmoid()
         else:
-            prob = pred
+            p = pred
 
+        # Стабильный подсчёт focal loss без log
         ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
-        p_t = prob * target + (1 - prob) * (1 - target)
+        p_t = p * target + (1 - p) * (1 - target)
         loss = ce_loss * ((1 - p_t) ** self.gamma)
 
         if self.alpha >= 0:
