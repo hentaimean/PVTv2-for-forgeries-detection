@@ -49,7 +49,7 @@ def build_param_groups(model, weight_decay=0.01, lr=6e-5, head_lr_mult=10.0):
     print(f"Параметры разбиты на группы:")
     print(f"   Backbone: {len(backbone_params)} параметров")
     print(f"   Norm:     {len(norm_params)} параметров")
-    print(f"   Head:     {len(head_params)} параметров")
+    print(f"   Head:     {len(head_params)} параметров\n")
 
     return params
 

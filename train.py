@@ -82,7 +82,7 @@ def main():
 
     print(f"  Train: {len(train_indices)}")
     print(f"  Val:   {len(val_indices)}")
-    print(f"  Test:  {len(test_indices)}")
+    print(f"  Test:  {len(test_indices)}\n")
 
     # Создаём подвыборки
     train_dataset = Subset(train_dataset_full, train_indices)
@@ -106,7 +106,7 @@ def main():
 
     # Проверяем, что всё ок
     if len(unexpected_keys) == 0 and all('head' not in k for k in missing_keys):
-        print("Предобученные веса PVTv2-B5 успешно загружены!")
+        print("Предобученные веса PVTv2-B5 успешно загружены!\n")
         if missing_keys:
             print(f"Не загружены ключи (ожидаемо для head): {missing_keys}")
     else:
@@ -230,6 +230,8 @@ def main():
                 val_dataset,
                 metrics_val,
                 device,
+                bce_loss_fn,
+                dice_loss_fn,
                 writer=writer,
                 global_step=iter_idx,
                 val_sample_size=1000,

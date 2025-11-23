@@ -59,6 +59,8 @@ def validate_epoch(
         val_dataset,
         metrics_obj,
         device,
+        bce_loss_fn,
+        dice_loss_fn,
         writer=None,
         global_step=0,
         val_sample_size=1000,
@@ -86,13 +88,8 @@ def validate_epoch(
         drop_last=False
     )
 
-    total_bce = total_dice = total_focal = total_loss = 0.0
+    total_bce = total_dice = total_loss = 0.0
     num_batches = 0
-
-    # Веса (должны совпадать с обучением!)
-    w_bce = 1.0
-    w_dice = 1.0
-    # w_focal = 0.0
 
     with torch.no_grad():
         for batch in sampled_loader:
@@ -103,8 +100,8 @@ def validate_epoch(
 
             loss_bce = bce_loss_fn(pred, masks)
             loss_dice = dice_loss_fn(pred, masks)
-            # loss_focal = focal_loss_fn(pred, masks)  # если используете
-            loss_total = w_bce * loss_bce + w_dice * loss_dice  # + w_focal * loss_focal
+            # loss_focal = focal_loss_fn(pred, masks)
+            loss_total = loss_bce + loss_dice  # + w_focal * loss_focal
 
             total_bce += loss_bce.item()
             total_dice += loss_dice.item()
