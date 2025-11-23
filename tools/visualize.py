@@ -1,5 +1,8 @@
+import random
+
 import matplotlib.pyplot as plt
 import numpy as np
+from torch.utils.data import DataLoader
 
 
 def visualize_prediction(image, target_mask, pred_logits, threshold=0.5, max_images=4):
@@ -50,62 +53,87 @@ def visualize_prediction(image, target_mask, pred_logits, threshold=0.5, max_ima
     return fig
 
 
-def validate_epoch(model, val_loader, metrics_obj, device, writer=None, global_step=0):
+def validate_epoch(
+        model,
+        val_dataset,
+        metrics_obj,
+        device,
+        writer=None,
+        global_step=0,
+        val_sample_size=1000,
+        seed=None
+):
     model.eval()
     metrics_obj.reset()
+
+    # --- 1. Выбираем случайные индексы ---
+    if seed is not None:
+        random.seed(seed + global_step)  # для воспроизводимости
+    total_size = len(val_dataset)
+    if val_sample_size >= total_size:
+        sampled_indices = list(range(total_size))
+    else:
+        sampled_indices = random.sample(range(total_size), val_sample_size)
+
+    # --- 2. Создаём временный DataLoader только для этих индексов ---
+    sampled_loader = DataLoader(
+        val_dataset,
+        batch_size=1,
+        sampler=torch.utils.data.SubsetRandomSampler(sampled_indices),
+        num_workers=4,
+        pin_memory=True,
+        drop_last=False
+    )
 
     total_bce = total_dice = total_focal = total_loss = 0.0
     num_batches = 0
 
-    # Веса — должны быть теми же, что и при обучении!
-    w_bce = 0.5
+    # Веса (должны совпадать с обучением!)
+    w_bce = 1.0
     w_dice = 1.0
-    w_focal = 0.8
+    # w_focal = 0.0
 
     with torch.no_grad():
-        for batch in val_loader:
+        for batch in sampled_loader:
             images = batch['image'].to(device, non_blocking=True)
             masks = batch['mask'].to(device, non_blocking=True).float().unsqueeze(1)
 
             pred = model(images)
 
-            # Считаем каждую потерю
             loss_bce = bce_loss(pred, masks)
             loss_dice = dice_loss_fn(pred, masks)
-            loss_focal = focal_loss_fn(pred, masks)
-            loss_total = w_bce * loss_bce + w_dice * loss_dice + w_focal * loss_focal
+            # loss_focal = focal_loss_fn(pred, masks)  # если используете
+            loss_total = w_bce * loss_bce + w_dice * loss_dice  # + w_focal * loss_focal
 
-            # Накапливаем
             total_bce += loss_bce.item()
             total_dice += loss_dice.item()
-            total_focal += loss_focal.item()
+            # total_focal += loss_focal.item()
             total_loss += loss_total.item()
             num_batches += 1
 
-            # Обновляем метрики
             metrics_obj.update(pred, masks)
 
-    # Усредняем
+    # Усреднение
     avg_bce = total_bce / num_batches
     avg_dice = total_dice / num_batches
-    avg_focal = total_focal / num_batches
+    # avg_focal = total_focal / num_batches
     avg_loss = total_loss / num_batches
     metrics = metrics_obj.compute()
 
-    # Логирование в TensorBoard
+    # Логирование
     if writer is not None:
         writer.add_scalar('Val/Loss/BCE', avg_bce, global_step)
         writer.add_scalar('Val/Loss/Dice', avg_dice, global_step)
-        writer.add_scalar('Val/Loss/Focal', avg_focal, global_step)
         writer.add_scalar('Val/Loss/Total', avg_loss, global_step)
         for name, value in metrics.items():
             writer.add_scalar(f'Val/{name}', value, global_step)
 
-    # Формируем строку для терминала
+    # Терминал
     metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items())
-    losses_str = f"BCE: {avg_bce:.3f}, Dice: {avg_dice:.3f}, Focal: {avg_focal:.3f}, Total: {avg_loss:.3f}"
+    losses_str = f"BCE: {avg_bce:.3f}, Dice: {avg_dice:.3f}, Total: {avg_loss:.3f}"
 
-    print(f"\n[Val @ {global_step}] Losses — {losses_str}")
+    print(f"\n[Val @ {global_step}] (sampled {len(sampled_indices)} images)")
+    print(f"[Val @ {global_step}] Losses — {losses_str}")
     print(f"[Val @ {global_step}] Metrics — {metrics_str}")
 
     return metrics, avg_loss

@@ -226,9 +226,14 @@ def main():
         # --- Валидация ---
         if iter_idx % VAL_INTERVAL == 0:
             val_metrics, val_loss = validate_epoch(
-                model, val_loader, metrics_val, device,
+                model,
+                val_dataset,
+                metrics_val,
+                device,
                 writer=writer,
-                global_step=iter_idx
+                global_step=iter_idx,
+                val_sample_size=1000,
+                seed=42
             )
 
             for name, value in val_metrics.items():
