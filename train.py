@@ -31,7 +31,7 @@ DROP_LAST = True  # для стабильности batch-norm при малых
 
 # --- Configuration ---
 MAX_ITERS = 320000
-VAL_INTERVAL = 5000
+VAL_INTERVAL = 10
 SAVE_INTERVAL = 5000
 LOG_INTERVAL = 50
 VISUALIZE_EVERY = 1

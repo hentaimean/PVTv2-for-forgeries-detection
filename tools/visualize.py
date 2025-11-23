@@ -2,6 +2,7 @@ import random
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from torch.utils.data import DataLoader
 
 
@@ -100,7 +101,7 @@ def validate_epoch(
 
             pred = model(images)
 
-            loss_bce = bce_loss(pred, masks)
+            loss_bce = bce_loss_fn(pred, masks)
             loss_dice = dice_loss_fn(pred, masks)
             # loss_focal = focal_loss_fn(pred, masks)  # если используете
             loss_total = w_bce * loss_bce + w_dice * loss_dice  # + w_focal * loss_focal
