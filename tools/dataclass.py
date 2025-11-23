@@ -181,6 +181,9 @@ class ForgerySegmentationDataset(Dataset):
             raise ValueError(f"Маска {mask_path} содержит недопустимые значения: {unique_vals}. "
                              f"Ожидаются только 0 (реальный) и 1 (поддельный).")
 
+        if image.shape[0] < 4 or image.shape[1] < 4:
+            raise ValueError(f"Image too small: {image.shape}")
+
         # Решаем, какой тип кропа использовать
         if self.fg_crop_prob > 0 and random.random() < self.fg_crop_prob:
             coords = self._get_forgery_coords(idx)
@@ -202,9 +205,6 @@ class ForgerySegmentationDataset(Dataset):
             # Возвращаем как PIL (редко используется)
             image = Image.fromarray(image)
             mask = Image.fromarray(mask.astype(np.uint8))
-
-        if image.shape[0] < 4 or image.shape[1] < 4:
-            raise ValueError(f"Image too small: {image.shape}")
 
         return {
             "image": image,
