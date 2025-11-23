@@ -116,7 +116,7 @@ def main():
 
     bce_loss_fn = BinaryCrossEntropyLoss(loss_weight=1.0, avg_non_ignore=True)
     dice_loss_fn = DiceLoss(loss_weight=1.0, use_sigmoid=True)
-    focal_loss_fn = FocalLoss(loss_weight=1.0)  # опционально
+    #focal_loss_fn = FocalLoss(loss_weight=1.0)  # опционально
 
     optimizer = create_optimizer(
         model,
@@ -191,12 +191,12 @@ def main():
         # Считаем каждую потерю отдельно
         loss_bce = bce_loss_fn(pred, masks)
         loss_dice = dice_loss_fn(pred, masks)
-        loss_focal = focal_loss_fn(pred, masks)
-        total_loss = 0.5 * loss_bce + 1.0 * loss_dice + 2 * loss_focal
+        #loss_focal = focal_loss_fn(pred, masks)
+        total_loss = loss_bce + loss_dice
 
         if torch.isnan(total_loss) or torch.isinf(total_loss):
             print(f"NaN/Inf in loss at iter {iter_idx}")
-            print(f"  BCE={loss_bce.item()}, Dice={loss_dice.item()}, Focal={loss_focal.item()}")
+            print(f"  BCE={loss_bce.item()}, Dice={loss_dice.item()}")
             print(f"  Pred min/max: {pred.min().item():.4f} / {pred.max().item():.4f}")
             print(f"  Target unique: {torch.unique(masks)}")
             raise ValueError("Stopping due to NaN loss")
@@ -209,7 +209,7 @@ def main():
         if iter_idx % LOG_INTERVAL == 0:
             writer.add_scalar('Loss/BCE', loss_bce.item(), iter_idx)
             writer.add_scalar('Loss/Dice', loss_dice.item(), iter_idx)
-            writer.add_scalar('Loss/Focal', loss_focal.item(), iter_idx)
+            #writer.add_scalar('Loss/Focal', loss_focal.item(), iter_idx)
             writer.add_scalar('Loss/Total', total_loss.item(), iter_idx)
             writer.add_scalar('Train/LR', optimizer.param_groups[0]['lr'], iter_idx)
 
@@ -218,7 +218,7 @@ def main():
             pbar.set_postfix({
                 'BCE': f"{loss_bce.item():.3f}",
                 'Dice': f"{loss_dice.item():.3f}",
-                'Focal': f"{loss_focal.item():.3f}",
+                #'Focal': f"{loss_focal.item():.3f}",
                 'Total': f"{total_loss.item():.3f}",
                 'LR': f"{optimizer.param_groups[0]['lr']:.1e}"
             })
