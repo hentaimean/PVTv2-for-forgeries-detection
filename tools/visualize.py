@@ -121,7 +121,7 @@ def validate_epoch(
     metrics = metrics_obj.compute()
 
     if writer is not None:
-        current_val_idx = global_step // VAL_INTERVAL  # номер валидации (1, 2, 3, ...)
+        current_val_idx = global_step // 10  # номер валидации (1, 2, 3, ...)
         if current_val_idx % visualize_every == 0 or current_val_idx == 1:  # первая — всегда
 
             # Берём первые max_images из sampled_loader
@@ -155,7 +155,7 @@ def validate_epoch(
         writer.add_scalar('Val/Loss/Dice', avg_dice, global_step)
         writer.add_scalar('Val/Loss/Total', avg_loss, global_step)
         for name, value in metrics.items():
-            writer.add_scalar(f'Val/Metrics/{name}', value, global_step)
+            writer.add_scalar(f'Val/{name}', value, global_step)
 
     # Терминал
     metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items())
