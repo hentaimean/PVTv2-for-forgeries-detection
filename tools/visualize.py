@@ -85,7 +85,7 @@ def validate_epoch(
         val_dataset,
         batch_size=1,
         sampler=torch.utils.data.SubsetRandomSampler(sampled_indices),
-        num_workers=4,
+        num_workers=0,
         pin_memory=True,
         drop_last=False
     )
@@ -121,7 +121,7 @@ def validate_epoch(
     metrics = metrics_obj.compute()
 
     if writer is not None:
-        current_val_idx = global_step // 10  # номер валидации (1, 2, 3, ...)
+        current_val_idx = global_step // 5000  # номер валидации (1, 2, 3, ...)
         if current_val_idx % visualize_every == 0 or current_val_idx == 1:  # первая — всегда
 
             # Берём первые max_images из sampled_loader

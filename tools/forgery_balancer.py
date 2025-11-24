@@ -42,7 +42,7 @@ class ForgeryBalancedBatchSampler(Sampler):
 
         self.fg_per_batch = fg_per_batch
 
-        print(f"Подделок: {len(self.fg_local_indices)}, Оригиналов: {len(self.clean_local_indices)}")
+        print(f"Подделок: {len(self.fg_local_indices)}, Оригиналов: {len(self.clean_local_indices)}\n")
 
     def __iter__(self):
         fg_indices = self.fg_local_indices.copy()

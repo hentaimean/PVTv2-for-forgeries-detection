@@ -23,8 +23,8 @@ MASKS_DIR = 'masks'
 SPLIT_PATH = "splits/grouped_indices.pt"
 
 # --- DataLoader ---
-BATCH_SIZE = 2
-NUM_WORKERS = 4
+BATCH_SIZE = 1
+NUM_WORKERS = 0
 SHUFFLE_TRAIN = True
 SHUFFLE_VAL = False
 PIN_MEMORY = True  # ускоряет передачу на GPU
@@ -33,7 +33,7 @@ SEED = 42
 
 # --- Configuration ---
 MAX_ITERS = 320000
-VAL_INTERVAL = 10
+VAL_INTERVAL = 5000
 SAVE_INTERVAL = 5000
 LOG_INTERVAL = 50
 
@@ -50,7 +50,7 @@ def main():
         images_dir=IMAGE_DIR,
         masks_dir=MASKS_DIR,
         transform=get_training_augmentation(),
-        fg_crop_prob=0.8,           # ← кропы с подделками
+        fg_crop_prob=0.1,           # кропы с подделками
         crop_size=(512, 512),
         use_albumentations=True
     )
@@ -90,14 +90,14 @@ def main():
     val_dataset = Subset(eval_dataset_full, val_indices)
     test_dataset = Subset(eval_dataset_full, test_indices)
 
-    train_sampler = ForgeryBalancedBatchSampler(
-        full_dataset=train_dataset_full,
-        allowed_indices=train_indices,
-        batch_size=BATCH_SIZE,
-        fg_ratio=0.5,
-        shuffle=SHUFFLE_TRAIN,
-        seed=SEED
-    )
+    # train_sampler = ForgeryBalancedBatchSampler(
+    #     full_dataset=train_dataset_full,
+    #     allowed_indices=train_indices,
+    #     batch_size=BATCH_SIZE,
+    #     fg_ratio=0.5,
+    #     shuffle=SHUFFLE_TRAIN,
+    #     seed=SEED
+    # )
 
     model = PVTv2B5ForForgerySegmentation(img_size=512)
     model = model.float()
@@ -146,7 +146,8 @@ def main():
 
     train_loader = DataLoader(
         train_dataset,
-        batch_sampler=train_sampler,
+        batch_size=BATCH_SIZE,
+        shuffle=SHUFFLE_TRAIN,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY
     )
