@@ -7,46 +7,46 @@ from torch.utils.data import Sampler
 class ForgeryBalancedBatchSampler(Sampler):
     def __init__(self, full_dataset, allowed_indices, batch_size, fg_ratio=0.5, shuffle=True, seed=42):
         self.full_dataset = full_dataset
-        self.allowed_indices = allowed_indices
+        self.allowed_indices = allowed_indices  # абсолютные индексы
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.seed = seed
 
-        # Разделяем индексы
-        self.fg_indices = []
-        self.clean_indices = []
-        for idx in self.allowed_indices:
-            img_path, _ = full_dataset.file_pairs[idx]
+        # Создаём mapping: абсолютный индекс -> локальный индекс
+        self.abs_to_local = {abs_idx: local_idx for local_idx, abs_idx in enumerate(allowed_indices)}
+
+        # Разделяем ЛОКАЛЬНЫЕ индексы на подделки и оригиналы
+        self.fg_local_indices = []
+        self.clean_local_indices = []
+
+        for local_idx, abs_idx in enumerate(allowed_indices):
+            img_path, _ = full_dataset.file_pairs[abs_idx]
             stem = Path(img_path).stem
             if stem.startswith('orig_'):
-                self.clean_indices.append(idx)
+                self.clean_local_indices.append(local_idx)
             else:
-                self.fg_indices.append(idx)
+                self.fg_local_indices.append(local_idx)
 
-        # Определяем fg_ratio и clean_per_batch
-        if len(self.clean_indices) == 0:
-            print("Оригиналов не найдено. Используем только подделки.")
+        # ... остальная логика, но работающая с ЛОКАЛЬНЫМИ индексами ...
+        if len(self.clean_local_indices) == 0:
             self.fg_ratio = 1.0
         else:
             self.fg_ratio = fg_ratio
 
-        # Всегда задаём clean_per_batch и fg_per_batch как атрибуты
         fg_per_batch = max(1, int(self.batch_size * self.fg_ratio))
         self.clean_per_batch = self.batch_size - fg_per_batch
 
-        # Если оригиналов нет, но clean_per_batch > 0 — корректируем
-        if len(self.clean_indices) == 0:
+        if len(self.clean_local_indices) == 0:
             self.clean_per_batch = 0
             fg_per_batch = self.batch_size
 
-        self.fg_per_batch = fg_per_batch  # ← тоже сохраняем как атрибут!
+        self.fg_per_batch = fg_per_batch
 
-        print(f"Подделок: {len(self.fg_indices)}, Оригиналов: {len(self.clean_indices)}")
-        print(f"   Батч: {self.fg_per_batch} подделок + {self.clean_per_batch} оригиналов")
+        print(f"Подделок: {len(self.fg_local_indices)}, Оригиналов: {len(self.clean_local_indices)}")
 
     def __iter__(self):
-        fg_indices = self.fg_indices.copy()
-        clean_indices = self.clean_indices.copy()
+        fg_indices = self.fg_local_indices.copy()
+        clean_indices = self.clean_local_indices.copy()
 
         if self.shuffle:
             random.seed(self.seed)
@@ -54,16 +54,15 @@ class ForgeryBalancedBatchSampler(Sampler):
             if clean_indices:
                 random.shuffle(clean_indices)
 
-        fg_per_batch = self.fg_per_batch
         batch = []
         fg_i = clean_i = 0
 
         while fg_i < len(fg_indices):
-            # Подделки
-            batch.extend(fg_indices[fg_i : fg_i + fg_per_batch])
-            fg_i += fg_per_batch
+            # Берём локальные индексы подделок
+            batch.extend(fg_indices[fg_i : fg_i + self.fg_per_batch])
+            fg_i += self.fg_per_batch
 
-            # Оригиналы (если есть)
+            # Берём локальные индексы оригиналов
             if clean_indices:
                 for _ in range(self.clean_per_batch):
                     if clean_i >= len(clean_indices):
@@ -77,10 +76,8 @@ class ForgeryBalancedBatchSampler(Sampler):
                 yield batch
                 batch = []
 
-        # Остаток (если нужно)
         if batch:
             yield batch[:self.batch_size]
 
     def __len__(self):
-        fg_per_batch = self.batch_size - self.clean_per_batch
-        return max(1, len(self.fg_indices) // fg_per_batch)
+        return max(1, len(self.fg_local_indices) // self.fg_per_batch)
