@@ -27,7 +27,7 @@ BATCH_SIZE = 1
 NUM_WORKERS = 0
 SHUFFLE_TRAIN = True
 SHUFFLE_VAL = False
-PIN_MEMORY = True  # ускоряет передачу на GPU
+PIN_MEMORY = False  # ускоряет передачу на GPU
 DROP_LAST = True  # для стабильности batch-norm при малых батчах
 SEED = 42
 
@@ -124,7 +124,7 @@ def main():
         print("Unexpected keys:", unexpected_keys)
         print("Missing keys:", missing_keys)
 
-    bce_loss_fn = BinaryCrossEntropyLoss(loss_weight=1.0, avg_non_ignore=True)
+    bce_loss_fn = BinaryCrossEntropyLoss(pos_weight=80.0, loss_weight=1.0) # Подделка занимает 1% пикселей? pos_weight = 99 и т.д.
     dice_loss_fn = DiceLoss(loss_weight=1.0, use_sigmoid=True)
     #focal_loss_fn = FocalLoss(loss_weight=1.0)  # опционально
 
@@ -223,6 +223,14 @@ def main():
                 'LR': f"{optimizer.param_groups[0]['lr']:.1e}"
             })
 
+        # Визуализация при обучении
+        if iter_idx % 1000 == 0:
+            with torch.no_grad():
+                pred_viz = model(images[:1])
+                fig = visualize_prediction(images[:1], masks[:1], pred_viz[:1])
+                writer.add_figure('Train/Prediction', fig, global_step=iter_idx)
+                plt.close(fig)
+
         # --- Валидация ---
         if iter_idx % VAL_INTERVAL == 0:
             val_metrics, val_loss = validate_epoch(
@@ -234,7 +242,7 @@ def main():
                 dice_loss_fn,
                 writer=writer,
                 global_step=iter_idx,
-                val_sample_size=2500,
+                val_sample_size=3500,
                 seed=SEED
             )
 

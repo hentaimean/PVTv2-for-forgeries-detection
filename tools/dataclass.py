@@ -235,6 +235,9 @@ def get_training_augmentation():
         albumentations.Compose: трансформации для применения после кропа.
     """
     return A.Compose([
+        A.RandomScale(scale_limit=(-0.5, 1.0), p=1.0),
+        A.Resize(height=512, width=512),
+
         # Горизонтальный флип
         A.HorizontalFlip(p=0.5),
 

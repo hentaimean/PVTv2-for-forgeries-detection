@@ -86,8 +86,9 @@ def validate_epoch(
         batch_size=1,
         sampler=torch.utils.data.SubsetRandomSampler(sampled_indices),
         num_workers=0,
-        pin_memory=True,
-        drop_last=False
+        pin_memory=False,
+        drop_last=False,
+        shuffle=False,
     )
 
     total_bce = total_dice = total_loss = 0.0
