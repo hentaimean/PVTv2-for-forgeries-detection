@@ -237,31 +237,14 @@ def get_training_augmentation():
     return A.Compose([
         A.RandomScale(scale_limit=(-0.5, 1.0), p=1.0),
         A.Resize(height=512, width=512),
-
-        # Горизонтальный флип
         A.HorizontalFlip(p=0.5),
-
-        # Фотометрические искажения (как в mmsegmentation)
         A.OneOf([
-            A.RandomBrightnessContrast(
-                brightness_limit=10 / 255.0,  # ±10 в шкале [0,1]
-                contrast_limit=(0.9, 1.2),  # контраст от 0.9 до 1.2
-                p=1.0
-            ),
-            A.HueSaturationValue(
-                hue_shift_limit=10,  # ±10 градусов
-                sat_shift_limit=(0.8, 1.2),  # насыщенность от 0.8 до 1.2
-                val_shift_limit=0,  # яркость не меняем дополнительно
-                p=1.0
-            )
+            A.RandomBrightnessContrast(brightness_limit=10 / 255.0, contrast_limit=(0.9, 1.2)),
+            A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=(0.8, 1.2))
         ], p=0.8),
-
-        # Нормализация под ImageNet (обязательно для предобученного PVTv2)
         A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-
-        # Преобразование в тензор
         ToTensorV2()
-    ], p=1.0)
+    ])
 
 
 def get_validation_augmentation():

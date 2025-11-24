@@ -124,7 +124,7 @@ def main():
         print("Unexpected keys:", unexpected_keys)
         print("Missing keys:", missing_keys)
 
-    bce_loss_fn = BinaryCrossEntropyLoss(pos_weight=80.0, loss_weight=1.0) # Подделка занимает 1% пикселей? pos_weight = 99 и т.д.
+    bce_loss_fn = BinaryCrossEntropyLoss(pos_weight=20.0, loss_weight=1.0)
     dice_loss_fn = DiceLoss(loss_weight=1.0, use_sigmoid=True)
     #focal_loss_fn = FocalLoss(loss_weight=1.0)  # опционально
 
