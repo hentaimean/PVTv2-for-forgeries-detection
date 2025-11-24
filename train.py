@@ -34,7 +34,6 @@ MAX_ITERS = 320000
 VAL_INTERVAL = 10
 SAVE_INTERVAL = 5000
 LOG_INTERVAL = 50
-VISUALIZE_EVERY = 1
 
 try:
     import cv2
@@ -207,14 +206,14 @@ def main():
 
         # --- Логирование в TensorBoard ---
         if iter_idx % LOG_INTERVAL == 0:
-            writer.add_scalar('Loss/BCE', loss_bce.item(), iter_idx)
-            writer.add_scalar('Loss/Dice', loss_dice.item(), iter_idx)
-            #writer.add_scalar('Loss/Focal', loss_focal.item(), iter_idx)
-            writer.add_scalar('Loss/Total', total_loss.item(), iter_idx)
+            writer.add_scalar('Loss_train/BCE', loss_bce.item(), iter_idx)
+            writer.add_scalar('Loss_train/Dice', loss_dice.item(), iter_idx)
+            #writer.add_scalar('Loss_train/Focal', loss_focal.item(), iter_idx)
+            writer.add_scalar('Loss_train/Total', total_loss.item(), iter_idx)
             writer.add_scalar('Train/LR', optimizer.param_groups[0]['lr'], iter_idx)
 
-        # --- Обновление tqdm (каждые 100 итераций) ---
-        if iter_idx % 100 == 0:
+        # --- Обновление tqdm ---
+        if iter_idx % LOG_INTERVAL == 0:
             pbar.set_postfix({
                 'BCE': f"{loss_bce.item():.3f}",
                 'Dice': f"{loss_dice.item():.3f}",

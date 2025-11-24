@@ -64,7 +64,9 @@ def validate_epoch(
         writer=None,
         global_step=0,
         val_sample_size=1000,
-        seed=None
+        seed=None,
+        visualize_every=1,
+        max_images=4
 ):
     model.eval()
     metrics_obj.reset()
@@ -118,13 +120,42 @@ def validate_epoch(
     avg_loss = total_loss / num_batches
     metrics = metrics_obj.compute()
 
+    if writer is not None:
+        current_val_idx = global_step // VAL_INTERVAL  # номер валидации (1, 2, 3, ...)
+        if current_val_idx % visualize_every == 0 or current_val_idx == 1:  # первая — всегда
+
+            # Берём первые max_images из sampled_loader
+            vis_batches = []
+            for i, batch in enumerate(sampled_loader):
+                if i >= max_images:
+                    break
+                vis_batches.append(batch)
+
+            if vis_batches:
+                # Собираем тензоры
+                images = torch.cat([b['image'][:1] for b in vis_batches], dim=0).to(device)
+                masks = torch.cat([b['mask'][:1] for b in vis_batches], dim=0).to(device)
+                masks = masks.float().unsqueeze(1)
+
+                with torch.no_grad():
+                    preds = model(images)
+
+                # Создаём фигуру
+                fig = visualize_prediction(
+                    images, masks, preds,
+                    threshold=0.5,
+                    max_images=len(images)
+                )
+                writer.add_figure('Val/Predictions', fig, global_step=global_step)
+                plt.close(fig)
+
     # Логирование
     if writer is not None:
         writer.add_scalar('Val/Loss/BCE', avg_bce, global_step)
         writer.add_scalar('Val/Loss/Dice', avg_dice, global_step)
         writer.add_scalar('Val/Loss/Total', avg_loss, global_step)
         for name, value in metrics.items():
-            writer.add_scalar(f'Val/{name}', value, global_step)
+            writer.add_scalar(f'Val/Metrics/{name}', value, global_step)
 
     # Терминал
     metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items())
