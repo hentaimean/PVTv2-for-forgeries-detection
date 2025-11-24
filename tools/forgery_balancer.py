@@ -5,39 +5,34 @@ from torch.utils.data import Sampler
 
 
 class ForgeryBalancedBatchSampler(Sampler):
-    def __init__(self, dataset, batch_size, fg_ratio=0.5, shuffle=True, seed=42):
-        self.dataset = dataset
+    def __init__(self, full_dataset, allowed_indices, batch_size, fg_ratio=0.5, shuffle=True, seed=42):
+        """
+        full_dataset: ForgerySegmentationDataset (имеет .file_pairs)
+        allowed_indices: список индексов из full_dataset, которые можно использовать (например, train_indices)
+        """
+        self.full_dataset = full_dataset
+        self.allowed_indices = allowed_indices  # ← новые индексы
         self.batch_size = batch_size
+        self.fg_ratio = fg_ratio
         self.shuffle = shuffle
         self.seed = seed
 
-        # Разделяем по 'orig_'
+        # Разделяем ТОЛЬКО разрешённые индексы
         self.fg_indices = []
         self.clean_indices = []
-        for i, (img_path, _) in enumerate(dataset.file_pairs):
+
+        for idx in self.allowed_indices:
+            img_path, _ = full_dataset.file_pairs[idx]
             stem = Path(img_path).stem
             if stem.startswith('orig_'):
-                self.clean_indices.append(i)
+                self.clean_indices.append(idx)
             else:
-                self.fg_indices.append(i)
-
-        # Защита от отсутствия оригиналов
-        if len(self.clean_indices) == 0:
-            print("Оригиналов не обнаружено. Используем только подделки.")
-            self.fg_ratio = 1.0
-        else:
-            self.fg_ratio = fg_ratio
-
-        fg_per_batch = max(1, int(self.batch_size * self.fg_ratio))
-        self.clean_per_batch = self.batch_size - fg_per_batch
-
-        # Защита: если оригиналов нет, но clean_per_batch > 0
-        if len(self.clean_indices) == 0:
-            self.clean_per_batch = 0
-            fg_per_batch = self.batch_size
+                self.fg_indices.append(idx)
 
         print(f"Подделок: {len(self.fg_indices)}, Оригиналов: {len(self.clean_indices)}")
-        print(f"   Батч: {fg_per_batch} подделок + {self.clean_per_batch} оригиналов")
+
+        if len(self.fg_indices) == 0:
+            raise ValueError("Нет подделок в разрешённых индексах!")
 
     def __iter__(self):
         fg_indices = self.fg_indices.copy()

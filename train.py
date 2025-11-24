@@ -91,9 +91,10 @@ def main():
     test_dataset = Subset(eval_dataset_full, test_indices)
 
     train_sampler = ForgeryBalancedBatchSampler(
-        train_dataset,
+        full_dataset=train_dataset_full,
+        allowed_indices=train_indices,
         batch_size=BATCH_SIZE,
-        fg_ratio=0.5,                      # соотношение подделок и оригиналов
+        fg_ratio=0.5,
         shuffle=SHUFFLE_TRAIN,
         seed=SEED
     )
@@ -145,9 +146,9 @@ def main():
 
     train_loader = DataLoader(
         train_dataset,
+        batch_sampler=train_sampler,
         num_workers=NUM_WORKERS,
-        pin_memory=PIN_MEMORY,
-        batch_sampler = train_sampler
+        pin_memory=PIN_MEMORY
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
