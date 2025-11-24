@@ -15,6 +15,7 @@ from tools.optimizer import create_optimizer
 from tools.scheduler import create_scheduler
 from tools.metrics import BinarySegmentationMetrics
 from tools.visualize import *
+from tools.forgery_balancer import ForgeryBalancedBatchSampler
 
 # --- Dataset ---
 IMAGE_DIR = 'images'
@@ -28,6 +29,7 @@ SHUFFLE_TRAIN = True
 SHUFFLE_VAL = False
 PIN_MEMORY = True  # ускоряет передачу на GPU
 DROP_LAST = True  # для стабильности batch-norm при малых батчах
+SEED = 42
 
 # --- Configuration ---
 MAX_ITERS = 320000
@@ -48,7 +50,7 @@ def main():
         images_dir=IMAGE_DIR,
         masks_dir=MASKS_DIR,
         transform=get_training_augmentation(),
-        fg_crop_prob=0.7,           # ← кропы с подделками
+        fg_crop_prob=0.8,           # ← кропы с подделками
         crop_size=(512, 512),
         use_albumentations=True
     )
@@ -87,6 +89,14 @@ def main():
     train_dataset = Subset(train_dataset_full, train_indices)
     val_dataset = Subset(eval_dataset_full, val_indices)
     test_dataset = Subset(eval_dataset_full, test_indices)
+
+    train_sampler = ForgeryBalancedBatchSampler(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        fg_ratio=0.5,                      # соотношение подделок и оригиналов
+        shuffle=SHUFFLE_TRAIN,
+        seed=SEED
+    )
 
     model = PVTv2B5ForForgerySegmentation(img_size=512)
     model = model.float()
@@ -135,20 +145,9 @@ def main():
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=SHUFFLE_TRAIN,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
-        drop_last=DROP_LAST
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=1,
-        shuffle=SHUFFLE_VAL,
-        num_workers=NUM_WORKERS,
-        pin_memory=PIN_MEMORY,
-        drop_last=False  # на валидации лучше сохранять все примеры
+        batch_sampler = train_sampler
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -233,8 +232,8 @@ def main():
                 dice_loss_fn,
                 writer=writer,
                 global_step=iter_idx,
-                val_sample_size=1000,
-                seed=42
+                val_sample_size=2500,
+                seed=SEED
             )
 
             for name, value in val_metrics.items():

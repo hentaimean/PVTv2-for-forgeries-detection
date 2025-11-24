@@ -66,7 +66,7 @@ def validate_epoch(
         val_sample_size=1000,
         seed=None,
         visualize_every=1,
-        max_images=4
+        max_images=16
 ):
     model.eval()
     metrics_obj.reset()

@@ -31,7 +31,7 @@ class ForgerySegmentationDataset(Dataset):
             images_dir: str,
             masks_dir: str,
             transform: Optional[Callable] = None,
-            fg_crop_prob: float = 0.7,
+            fg_crop_prob: float = 0.8,
             crop_size: Tuple[int, int] = (512, 512),
             use_albumentations: bool = True,
             preload_forgery_coords: bool = False
@@ -91,21 +91,21 @@ class ForgerySegmentationDataset(Dataset):
         return pairs
 
     def _get_forgery_coords(self, idx: int) -> Optional[List[Tuple[int, int]]]:
-        """
-        Ленивая загрузка координат поддельных пикселей для маски с индексом idx.
-        Возвращает список кортежей (y, x) или None, если подделок нет.
-        """
         if idx in self._forgery_coords_cache:
             return self._forgery_coords_cache[idx]
 
         _, mask_path = self.file_pairs[idx]
         mask = np.array(Image.open(mask_path).convert('L'))
-        # Находим все пиксели со значением 1
+
+        # Быстрая проверка: если сумма == 0 → нет подделок
+        if mask.sum() == 0:
+            self._forgery_coords_cache[idx] = None
+            return None
+
         coords = np.argwhere(mask == 1).tolist()
-        coords = [(int(y), int(x)) for y, x in coords]  # приводим к int
-        result = coords if coords else None
-        self._forgery_coords_cache[idx] = result
-        return result
+        coords = [(int(y), int(x)) for y, x in coords]
+        self._forgery_coords_cache[idx] = coords
+        return coords
 
     def _random_crop_around_forgery(self, image: np.ndarray, mask: np.ndarray, coords: List[Tuple[int, int]]):
         """
@@ -214,10 +214,7 @@ class ForgerySegmentationDataset(Dataset):
         }
 
 
-def get_training_augmentation(
-        crop_size=(512, 512),
-        fg_crop_prob=0.7
-):
+def get_training_augmentation():
     """
     Создаёт пайплайн аугментаций для обучения модели обнаружения подделок.
 
