@@ -6,21 +6,15 @@ from torch.utils.data import Sampler
 
 class ForgeryBalancedBatchSampler(Sampler):
     def __init__(self, full_dataset, allowed_indices, batch_size, fg_ratio=0.5, shuffle=True, seed=42):
-        """
-        full_dataset: ForgerySegmentationDataset (имеет .file_pairs)
-        allowed_indices: список индексов из full_dataset, которые можно использовать (например, train_indices)
-        """
         self.full_dataset = full_dataset
-        self.allowed_indices = allowed_indices  # ← новые индексы
+        self.allowed_indices = allowed_indices
         self.batch_size = batch_size
-        self.fg_ratio = fg_ratio
         self.shuffle = shuffle
         self.seed = seed
 
-        # Разделяем ТОЛЬКО разрешённые индексы
+        # Разделяем индексы
         self.fg_indices = []
         self.clean_indices = []
-
         for idx in self.allowed_indices:
             img_path, _ = full_dataset.file_pairs[idx]
             stem = Path(img_path).stem
@@ -29,10 +23,26 @@ class ForgeryBalancedBatchSampler(Sampler):
             else:
                 self.fg_indices.append(idx)
 
-        print(f"Подделок: {len(self.fg_indices)}, Оригиналов: {len(self.clean_indices)}")
+        # Определяем fg_ratio и clean_per_batch
+        if len(self.clean_indices) == 0:
+            print("Оригиналов не найдено. Используем только подделки.")
+            self.fg_ratio = 1.0
+        else:
+            self.fg_ratio = fg_ratio
 
-        if len(self.fg_indices) == 0:
-            raise ValueError("Нет подделок в разрешённых индексах!")
+        # Всегда задаём clean_per_batch и fg_per_batch как атрибуты
+        fg_per_batch = max(1, int(self.batch_size * self.fg_ratio))
+        self.clean_per_batch = self.batch_size - fg_per_batch
+
+        # Если оригиналов нет, но clean_per_batch > 0 — корректируем
+        if len(self.clean_indices) == 0:
+            self.clean_per_batch = 0
+            fg_per_batch = self.batch_size
+
+        self.fg_per_batch = fg_per_batch  # ← тоже сохраняем как атрибут!
+
+        print(f"Подделок: {len(self.fg_indices)}, Оригиналов: {len(self.clean_indices)}")
+        print(f"   Батч: {self.fg_per_batch} подделок + {self.clean_per_batch} оригиналов")
 
     def __iter__(self):
         fg_indices = self.fg_indices.copy()
@@ -44,7 +54,7 @@ class ForgeryBalancedBatchSampler(Sampler):
             if clean_indices:
                 random.shuffle(clean_indices)
 
-        fg_per_batch = self.batch_size - self.clean_per_batch
+        fg_per_batch = self.fg_per_batch
         batch = []
         fg_i = clean_i = 0
 
