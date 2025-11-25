@@ -188,21 +188,23 @@ def main():
         power=SCHEDULER_POWER
     )
 
-    # --- Активация ForgeryBalancedBatchSampler ---
-    train_sampler = ForgeryBalancedBatchSampler(
-        full_dataset=train_dataset_full,
-        allowed_indices=train_indices,
-        batch_size=BATCH_SIZE,
-        fg_ratio=0.5,  # 50% подделок в батче
-        shuffle=SHUFFLE_TRAIN,
-        seed=SEED
-    )
+    # # --- Активация ForgeryBalancedBatchSampler ---
+    # train_sampler = ForgeryBalancedBatchSampler(
+    #     full_dataset=train_dataset_full,
+    #     allowed_indices=train_indices,
+    #     batch_size=BATCH_SIZE,
+    #     fg_ratio=0.5,  # 50% подделок в батче
+    #     shuffle=SHUFFLE_TRAIN,
+    #     seed=SEED
+    # )
 
     train_loader = DataLoader(
         train_dataset,
-        batch_sampler=train_sampler,
+        batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
-        pin_memory=PIN_MEMORY
+        pin_memory=PIN_MEMORY,
+        shuffle=SHUFFLE_TRAIN,
+        drop_last=DROP_LAST
     )
 
     # --- Настройка логирования и сохранения ---
@@ -292,7 +294,6 @@ def main():
                 pred_viz = model(images[:1])
                 fig = visualize_prediction(images[:1], masks[:1], pred_viz[:1])
                 writer.add_figure('Train/Prediction', fig, global_step=iter_idx)
-                plt.close(fig)
 
         # === Валидация ===
         if iter_idx % VAL_INTERVAL == 0:
