@@ -1,4 +1,4 @@
-# train.py — обучение модели для сегментации подделок на изображениях
+# train.py — обучение модели для сегментации подделок на изображении
 
 import torch
 from torch.utils.data import Subset
@@ -12,7 +12,7 @@ from datetime import datetime
 from splits.splits import split_dataset_by_groups
 from model.pvtv2 import PVTv2B5ForForgerySegmentation
 from tools.dataclass import *
-from tools.loss import BinaryCrossEntropyLoss, DiceLoss
+from tools.loss import BinaryCrossEntropyLoss, DiceLoss, FocalLoss
 from tools.optimizer import create_optimizer
 from tools.scheduler import create_scheduler
 from tools.metrics import BinarySegmentationMetrics
@@ -40,27 +40,31 @@ SEED = 42
 
 # Параметры обучения
 MAX_ITERS = 320_000
-VAL_INTERVAL = 5_000      # интервал валидации (итераций)
-SAVE_INTERVAL = 5_000     # интервал сохранения чекпоинтов
+VAL_INTERVAL = 5000      # интервал валидации (итераций)
+VAL_SAMPLE_SIZE = 4000    # размер валидационной выборки
+SAVE_INTERVAL = 5000     # интервал сохранения чекпоинтов
 LOG_INTERVAL = 50         # интервал логирования в TensorBoard
 
 # Параметры потерь
-BCE_POS_WEIGHT = 10.0
+BCE_POS_WEIGHT = 50.0        # УВЕЛИЧЕНО: для лучшей борьбы с дисбалансом
 BCE_LOSS_WEIGHT = 1.0
 DICE_LOSS_WEIGHT = 1.0
+FOCAL_GAMMA = 2.0
+FOCAL_LOSS_WEIGHT = 1.0
 
 # Параметры оптимизатора
-LEARNING_RATE = 6e-5
+LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 0.01
 HEAD_LR_MULT = 10.0
 
 # Параметры планировщика
-WARMUP_ITERS = 1_500
+WARMUP_ITERS = 1500
 MIN_LR = 0.0
 SCHEDULER_POWER = 1.0
 
 # Параметры визуализации
-VISUALIZE_TRAIN_INTERVAL = 1_000  # каждые N итераций — визуализация в обучении
+VISUALIZE_TRAIN_INTERVAL = 1000  # каждые N итераций — визуализация в обучении
+FG_CROP_PROB = 1.0   # вероятность кропа с подделкой
 
 try:
     import cv2
@@ -81,7 +85,7 @@ def main():
         images_dir=IMAGE_DIR,
         masks_dir=MASKS_DIR,
         transform=get_training_augmentation(),
-        fg_crop_prob=0.1,           # вероятность кропа с подделкой
+        fg_crop_prob=FG_CROP_PROB,
         crop_size=(512, 512),
         use_albumentations=True
     )
@@ -161,6 +165,11 @@ def main():
         loss_weight=DICE_LOSS_WEIGHT,
         use_sigmoid=True
     )
+    focal_loss_fn = FocalLoss(
+        gamma=FOCAL_GAMMA,
+        loss_weight=FOCAL_LOSS_WEIGHT,
+        use_sigmoid=True
+    )
 
     # --- Инициализация оптимизатора и планировщика ---
 
@@ -179,12 +188,19 @@ def main():
         power=SCHEDULER_POWER
     )
 
-    # --- DataLoader для обучения ---
+    # --- Активация ForgeryBalancedBatchSampler ---
+    train_sampler = ForgeryBalancedBatchSampler(
+        full_dataset=train_dataset_full,
+        allowed_indices=train_indices,
+        batch_size=BATCH_SIZE,
+        fg_ratio=0.5,  # 50% подделок в батче
+        shuffle=SHUFFLE_TRAIN,
+        seed=SEED
+    )
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=SHUFFLE_TRAIN,
+        batch_sampler=train_sampler,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY
     )
@@ -236,12 +252,13 @@ def main():
         # Подсчёт потерь
         loss_bce = bce_loss_fn(pred, masks)
         loss_dice = dice_loss_fn(pred, masks)
-        total_loss = loss_bce + loss_dice
+        loss_focal = focal_loss_fn(pred, masks)
+        total_loss = loss_bce + loss_dice + loss_focal
 
         # Проверка на NaN/Inf
         if torch.isnan(total_loss) or torch.isinf(total_loss):
             print(f"Обнаружено NaN/Inf в итерации {iter_idx}")
-            print(f"  BCE={loss_bce.item():.4f}, Dice={loss_dice.item():.4f}")
+            print(f"  BCE={loss_bce.item():.4f}, Dice={loss_dice.item():.4f}, Focal={loss_focal.item():.4f}")
             print(f"  Pred min/max: {pred.min().item():.4f} / {pred.max().item():.4f}")
             print(f"  Уникальные значения маски: {torch.unique(masks)}")
             raise ValueError("Остановка из-за NaN в функции потерь")
@@ -255,6 +272,7 @@ def main():
         if iter_idx % LOG_INTERVAL == 0:
             writer.add_scalar('Loss/BCE', loss_bce.item(), iter_idx)
             writer.add_scalar('Loss/Dice', loss_dice.item(), iter_idx)
+            writer.add_scalar('Loss/Focal', loss_focal.item(), iter_idx)
             writer.add_scalar('Loss/Total', total_loss.item(), iter_idx)
             writer.add_scalar('Train/LR', optimizer.param_groups[0]['lr'], iter_idx)
 
@@ -263,6 +281,7 @@ def main():
             pbar.set_postfix({
                 'BCE': f"{loss_bce.item():.3f}",
                 'Dice': f"{loss_dice.item():.3f}",
+                'Focal': f"{loss_focal.item():.3f}",
                 'Total': f"{total_loss.item():.3f}",
                 'LR': f"{optimizer.param_groups[0]['lr']:.1e}"
             })
@@ -284,9 +303,10 @@ def main():
                 device=device,
                 bce_loss_fn=bce_loss_fn,
                 dice_loss_fn=dice_loss_fn,
+                focal_loss_fn=focal_loss_fn,
                 writer=writer,
                 global_step=iter_idx,
-                val_sample_size=3500,
+                val_sample_size=VAL_SAMPLE_SIZE,
                 seed=SEED
             )
 

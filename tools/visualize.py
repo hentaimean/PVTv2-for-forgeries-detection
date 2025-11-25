@@ -22,6 +22,7 @@ DEFAULT_MAX_VAL_VISUALIZATION_IMAGES = 16
 # Параметры валидации
 DEFAULT_VAL_SAMPLE_SIZE = 1000
 DEFAULT_VISUALIZE_EVERY_NTH_VALIDATION = 1  # визуализировать каждую N-ю валидацию
+VAL_INTERVAL = 5000
 
 
 # ==============================
@@ -86,6 +87,7 @@ def validate_epoch(
         device,
         bce_loss_fn,
         dice_loss_fn,
+        focal_loss_fn,
         writer=None,
         global_step=0,
         val_sample_size=DEFAULT_VAL_SAMPLE_SIZE,
@@ -142,7 +144,7 @@ def validate_epoch(
     )
 
     # --- 3. Проход по подвыборке ---
-    total_bce = total_dice = total_loss = 0.0
+    total_bce = total_dice = total_loss = total_focal = 0.0
     num_batches = 0
 
     with torch.no_grad():
@@ -154,10 +156,12 @@ def validate_epoch(
 
             loss_bce = bce_loss_fn(pred, masks)
             loss_dice = dice_loss_fn(pred, masks)
-            loss_total = loss_bce + loss_dice
+            loss_focal = focal_loss_fn(pred, masks)
+            loss_total = loss_bce + loss_dice + loss_focal
 
             total_bce += loss_bce.item()
             total_dice += loss_dice.item()
+            total_focal += loss_focal.item()
             total_loss += loss_total.item()
             num_batches += 1
 
@@ -166,12 +170,13 @@ def validate_epoch(
     # Усреднение
     avg_bce = total_bce / num_batches
     avg_dice = total_dice / num_batches
+    avg_focal = total_focal / num_batches
     avg_loss = total_loss / num_batches
     metrics = metrics_obj.compute()
 
     # --- 4. Визуализация (если требуется) ---
     if writer is not None:
-        current_val_idx = global_step // 5000
+        current_val_idx = global_step // VAL_INTERVAL
         should_visualize = (
                 current_val_idx % visualize_every == 0 or current_val_idx == 1
         )
@@ -189,7 +194,9 @@ def validate_epoch(
                 masks = torch.cat([b['mask'][:1] for b in vis_batches], dim=0).to(device)
                 masks = masks.float().unsqueeze(1)
 
-                preds = model(images)
+                with torch.no_grad():
+                    preds = model(images)
+
                 fig = visualize_prediction(
                     images, masks, preds,
                     threshold=DEFAULT_VISUALIZATION_THRESHOLD,
@@ -198,17 +205,48 @@ def validate_epoch(
                 writer.add_figure('Val/Predictions', fig, global_step=global_step)
                 plt.close(fig)
 
-    # --- 5. Логирование метрик ---
+    # --- 5. Анализ метрик при разных порогах ---
+    best_iou_across_thresholds = 0.0
+    best_threshold = 0.5
+    metrics_by_threshold = {}
+
+    if hasattr(metrics_obj, 'compute_at_thresholds'):
+        metrics_by_threshold = metrics_obj.compute_at_thresholds()
+        for th, metrics_th in metrics_by_threshold.items():
+            if metrics_th['IoU_forgery'] > best_iou_across_thresholds:
+                best_iou_across_thresholds = metrics_th['IoU_forgery']
+                best_threshold = th
+
+    # Обновляет основные метрики на лучший найденный порог
+    if best_iou_across_thresholds > metrics.get('IoU_forgery', 0):
+        # Фиксирует метрики для лучшего порога
+        metrics = metrics_by_threshold[best_threshold].copy()
+        metrics['best_threshold'] = best_threshold
+        print(
+            f"\n[Валидация @ {global_step}] Лучший порог: {best_threshold:.1f}, IoU: {best_iou_across_thresholds:.4f}")
+
+    # --- 6. Логирование в TensorBoard ---
     if writer is not None:
         writer.add_scalar('Val/Loss/BCE', avg_bce, global_step)
         writer.add_scalar('Val/Loss/Dice', avg_dice, global_step)
+        writer.add_scalar('Val/Loss/Focal', avg_focal, global_step)
         writer.add_scalar('Val/Loss/Total', avg_loss, global_step)
-        for name, value in metrics.items():
-            writer.add_scalar(f'Val/{name}', value, global_step)
 
-    # --- 6. Вывод в терминал ---
-    metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items())
-    losses_str = f"BCE: {avg_bce:.3f}, Dice: {avg_dice:.3f}, Total: {avg_loss:.3f}"
+        # Основные метрики (с лучшим порогом)
+        for name, value in metrics.items():
+            if name != 'best_threshold':
+                writer.add_scalar(f'Val/{name}', value, global_step)
+        if 'best_threshold' in metrics:
+            writer.add_scalar('Val/best_threshold', metrics['best_threshold'], global_step)
+
+        # Дополнительно: логирует IoU для всех порогов
+        for th, metrics_th in metrics_by_threshold.items():
+            writer.add_scalar(f'Val_Th{th:.1f}/IoU_forgery', metrics_th['IoU_forgery'], global_step)
+
+    # --- 7. Вывод в терминал ---
+    metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items() if k != 'best_threshold')
+    losses_str = (f"BCE: {avg_bce:.3f}, Dice: {avg_dice:.3f}, Focal: {avg_focal:.3f},"
+                  f"Total: {avg_loss:.3f}, best_th: {metrics['best_threshold']:.1f}")
 
     print(f"\n[Валидация @ {global_step}] (выборка: {len(sampled_indices)} изображений)")
     print(f"[Валидация @ {global_step}] Потери — {losses_str}")
