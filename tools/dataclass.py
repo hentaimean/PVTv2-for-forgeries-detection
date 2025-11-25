@@ -235,13 +235,9 @@ def get_training_augmentation():
         albumentations.Compose: трансформации для применения после кропа.
     """
     return A.Compose([
-        A.RandomScale(scale_limit=(-0.5, 1.0), p=1.0),
+        A.RandomScale(scale_limit=(-0.3, 0.3), p=0.5),
         A.Resize(height=512, width=512),
         A.HorizontalFlip(p=0.5),
-        A.OneOf([
-            A.RandomBrightnessContrast(brightness_limit=10 / 255.0, contrast_limit=(0.9, 1.2)),
-            A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=(0.8, 1.2))
-        ], p=0.8),
         A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ToTensorV2()
     ])
