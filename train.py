@@ -46,7 +46,7 @@ SAVE_INTERVAL = 5000     # интервал сохранения чекпоин�
 LOG_INTERVAL = 50         # интервал логирования в TensorBoard
 
 # Параметры потерь
-BCE_POS_WEIGHT = 50.0        # УВЕЛИЧЕНО: для лучшей борьбы с дисбалансом
+BCE_POS_WEIGHT = 10.0
 BCE_LOSS_WEIGHT = 1.0
 DICE_LOSS_WEIGHT = 1.0
 FOCAL_GAMMA = 2.0
@@ -58,7 +58,7 @@ WEIGHT_DECAY = 0.01
 HEAD_LR_MULT = 10.0
 
 # Параметры планировщика
-WARMUP_ITERS = 1500
+WARMUP_ITERS = 3000
 MIN_LR = 0.0
 SCHEDULER_POWER = 1.0
 
@@ -221,6 +221,22 @@ def main():
     model.to(device)
     train_iter = iter(train_loader)
     metrics_val = BinarySegmentationMetrics(threshold=0.5)
+
+    # --- Проверка модели ---
+    print("Проверка модели перед обучением...")
+    with torch.no_grad():
+        sample_batch = next(iter(train_loader))
+        sample_image = sample_batch['image'].to(device)
+        sample_pred = model(sample_image)
+        print(f"Минимальный логит: {sample_pred.min().item():.4f}")
+        print(f"Максимальный логит: {sample_pred.max().item():.4f}")
+        print(f"Средний логит: {sample_pred.mean().item():.4f}")
+
+        # Только backbone
+        feats = model.backbone(sample_image)
+        print("Backbone output shapes:")
+        for i, f in enumerate(feats):
+            print(f"  Level {i}: {f.shape}, mean={f.mean().item():.4f}, std={f.std().item():.4f}")
 
     best_iou = 0.0
     pbar = tqdm(range(1, MAX_ITERS + 1), desc="Training", mininterval=1.0)
