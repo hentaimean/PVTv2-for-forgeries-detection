@@ -1,58 +1,83 @@
-import random
+# tools/visualize.py — визуализация предсказаний и валидация модели
 
+import random
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+# ==============================
+# КОНСТАНТЫ ВИЗУАЛИЗАЦИИ И ВАЛИДАЦИИ
+# ==============================
 
-def visualize_prediction(image, target_mask, pred_logits, threshold=0.5, max_images=4):
+# Параметры денормализации (ImageNet)
+IMAGE_MEAN = np.array([0.485, 0.456, 0.406])
+IMAGE_STD = np.array([0.229, 0.224, .225])
+
+# Параметры визуализации
+DEFAULT_VISUALIZATION_THRESHOLD = 0.5
+DEFAULT_MAX_IMAGES_PER_FIGURE = 4
+DEFAULT_MAX_VAL_VISUALIZATION_IMAGES = 16
+
+# Параметры валидации
+DEFAULT_VAL_SAMPLE_SIZE = 1000
+DEFAULT_VISUALIZE_EVERY_NTH_VALIDATION = 1  # визуализировать каждую N-ю валидацию
+
+
+# ==============================
+# ФУНКЦИИ ВИЗУАЛИЗАЦИИ
+# ==============================
+
+def visualize_prediction(image, target_mask, pred_logits, threshold=DEFAULT_VISUALIZATION_THRESHOLD,
+                         max_images=DEFAULT_MAX_IMAGES_PER_FIGURE):
     """
-    Создаёт визуализацию для TensorBoard.
+    Создаёт фигуру matplotlib для сравнения изображения, маски и предсказания.
 
-    Args:
-        image: [B, 3, H, W], нормализованное под ImageNet
-        target_mask: [B, 1, H, W], 0/1
-        pred_logits: [B, 1, H, W], сырые logits
-        threshold: порог для бинаризации предсказания
-        max_images: сколько изображений показывать
+    Аргументы:
+        image: [B, 3, H, W] — нормализованные изображения (ImageNet)
+        target_mask: [B, 1, H, W] — истинные бинарные маски (0/1)
+        pred_logits: [B, 1, H, W] — сырые логиты модели
+        threshold (float): порог для бинаризации предсказания
+        max_images (int): максимальное число изображений в фигуре
 
-    Returns:
-        fig: matplotlib.figure.Figure (можно передать в SummaryWriter.add_figure)
+    Возвращает:
+        matplotlib.figure.Figure — готовая фигура для TensorBoard.
     """
-    # Денормализация изображения (ImageNet)
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-
     batch_size = min(image.shape[0], max_images)
     fig, axes = plt.subplots(batch_size, 3, figsize=(12, 4 * batch_size))
+
+    # Обработка случая с одним изображением
     if batch_size == 1:
-        axes = axes[np.newaxis, :]  # приводим к 2D
+        axes = axes[np.newaxis, :]
 
     for i in range(batch_size):
-        # Изображение
+        # Денормализация изображения
         img = image[i].cpu().numpy().transpose(1, 2, 0)
-        img = std * img + mean
+        img = IMAGE_STD * img + IMAGE_MEAN
         img = np.clip(img, 0, 1)
         axes[i, 0].imshow(img)
-        axes[i, 0].set_title("Image")
+        axes[i, 0].set_title("Изображение")
         axes[i, 0].axis('off')
 
         # Истинная маска
         mask_true = target_mask[i].cpu().numpy().squeeze()
         axes[i, 1].imshow(mask_true, cmap='gray')
-        axes[i, 1].set_title("Ground Truth")
+        axes[i, 1].set_title("Истинная маска")
         axes[i, 1].axis('off')
 
         # Предсказанная маска
         pred = (pred_logits[i].sigmoid() > threshold).float().cpu().numpy().squeeze()
         axes[i, 2].imshow(pred, cmap='gray')
-        axes[i, 2].set_title("Prediction")
+        axes[i, 2].set_title("Предсказание")
         axes[i, 2].axis('off')
 
     plt.tight_layout()
     return fig
 
+
+# ==============================
+# ФУНКЦИЯ ВАЛИДАЦИИ
+# ==============================
 
 def validate_epoch(
         model,
@@ -63,24 +88,49 @@ def validate_epoch(
         dice_loss_fn,
         writer=None,
         global_step=0,
-        val_sample_size=1000,
+        val_sample_size=DEFAULT_VAL_SAMPLE_SIZE,
         seed=None,
-        visualize_every=1,
-        max_images=16
+        visualize_every=DEFAULT_VISUALIZE_EVERY_NTH_VALIDATION,
+        max_images=DEFAULT_MAX_VAL_VISUALIZATION_IMAGES
 ):
+    """
+    Выполняет валидацию модели на подвыборке данных.
+
+    Особенности:
+      - Использует случайную подвыборку для ускорения.
+      - Поддерживает визуализацию предсказаний в TensorBoard.
+      - Сбрасывает и обновляет переданный объект метрик.
+
+    Аргументы:
+        model: обучаемая модель (в eval-режиме).
+        val_dataset: валидационный датасет.
+        metrics_obj: объект BinarySegmentationMetrics.
+        device: устройство (CPU/GPU).
+        bce_loss_fn, dice_loss_fn: функции потерь.
+        writer: SummaryWriter для логирования (опционально).
+        global_step: текущая итерация (для логирования).
+        val_sample_size: размер случайной подвыборки.
+        seed: для воспроизводимости.
+        visualize_every: визуализировать каждую N-ю валидацию.
+        max_images: макс. число изображений в визуализации.
+
+    Возвращает:
+        tuple: (словарь метрик, среднее значение total_loss)
+    """
     model.eval()
     metrics_obj.reset()
 
-    # --- 1. Выбираем случайные индексы ---
+    # --- 1. Выбор случайной подвыборки ---
     if seed is not None:
-        random.seed(seed + global_step)  # для воспроизводимости
+        random.seed(seed + global_step)
+
     total_size = len(val_dataset)
     if val_sample_size >= total_size:
         sampled_indices = list(range(total_size))
     else:
         sampled_indices = random.sample(range(total_size), val_sample_size)
 
-    # --- 2. Создаём временный DataLoader только для этих индексов ---
+    # --- 2. Создание DataLoader для подвыборки ---
     sampled_loader = DataLoader(
         val_dataset,
         batch_size=1,
@@ -91,6 +141,7 @@ def validate_epoch(
         shuffle=False,
     )
 
+    # --- 3. Проход по подвыборке ---
     total_bce = total_dice = total_loss = 0.0
     num_batches = 0
 
@@ -103,12 +154,10 @@ def validate_epoch(
 
             loss_bce = bce_loss_fn(pred, masks)
             loss_dice = dice_loss_fn(pred, masks)
-            # loss_focal = focal_loss_fn(pred, masks)
-            loss_total = loss_bce + loss_dice  # + w_focal * loss_focal
+            loss_total = loss_bce + loss_dice
 
             total_bce += loss_bce.item()
             total_dice += loss_dice.item()
-            # total_focal += loss_focal.item()
             total_loss += loss_total.item()
             num_batches += 1
 
@@ -117,15 +166,18 @@ def validate_epoch(
     # Усреднение
     avg_bce = total_bce / num_batches
     avg_dice = total_dice / num_batches
-    # avg_focal = total_focal / num_batches
     avg_loss = total_loss / num_batches
     metrics = metrics_obj.compute()
 
+    # --- 4. Визуализация (если требуется) ---
     if writer is not None:
-        current_val_idx = global_step // 5000  # номер валидации (1, 2, 3, ...)
-        if current_val_idx % visualize_every == 0 or current_val_idx == 1:  # первая — всегда
+        current_val_idx = global_step // 5000
+        should_visualize = (
+                current_val_idx % visualize_every == 0 or current_val_idx == 1
+        )
 
-            # Берём первые max_images из sampled_loader
+        if should_visualize:
+            # Сбор батчей для визуализации
             vis_batches = []
             for i, batch in enumerate(sampled_loader):
                 if i >= max_images:
@@ -133,24 +185,20 @@ def validate_epoch(
                 vis_batches.append(batch)
 
             if vis_batches:
-                # Собираем тензоры
                 images = torch.cat([b['image'][:1] for b in vis_batches], dim=0).to(device)
                 masks = torch.cat([b['mask'][:1] for b in vis_batches], dim=0).to(device)
                 masks = masks.float().unsqueeze(1)
 
-                with torch.no_grad():
-                    preds = model(images)
-
-                # Создаём фигуру
+                preds = model(images)
                 fig = visualize_prediction(
                     images, masks, preds,
-                    threshold=0.5,
+                    threshold=DEFAULT_VISUALIZATION_THRESHOLD,
                     max_images=len(images)
                 )
                 writer.add_figure('Val/Predictions', fig, global_step=global_step)
                 plt.close(fig)
 
-    # Логирование
+    # --- 5. Логирование метрик ---
     if writer is not None:
         writer.add_scalar('Val/Loss/BCE', avg_bce, global_step)
         writer.add_scalar('Val/Loss/Dice', avg_dice, global_step)
@@ -158,12 +206,12 @@ def validate_epoch(
         for name, value in metrics.items():
             writer.add_scalar(f'Val/{name}', value, global_step)
 
-    # Терминал
+    # --- 6. Вывод в терминал ---
     metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items())
     losses_str = f"BCE: {avg_bce:.3f}, Dice: {avg_dice:.3f}, Total: {avg_loss:.3f}"
 
-    print(f"\n[Val @ {global_step}] (sampled {len(sampled_indices)} images)")
-    print(f"[Val @ {global_step}] Losses — {losses_str}")
-    print(f"[Val @ {global_step}] Metrics — {metrics_str}")
+    print(f"\n[Валидация @ {global_step}] (выборка: {len(sampled_indices)} изображений)")
+    print(f"[Валидация @ {global_step}] Потери — {losses_str}")
+    print(f"[Валидация @ {global_step}] Метрики — {metrics_str}")
 
     return metrics, avg_loss

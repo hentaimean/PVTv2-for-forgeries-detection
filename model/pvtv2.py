@@ -1,16 +1,19 @@
-import math
+# model/pvtv2.py — реализация модели PVTv2-B5 с FPN-шейкой и головой для бинарной сегментации
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-# ----------------------------------------
-# 1. BACKBONE: pvt_v2_b5
-# ----------------------------------------
+# ==============================
+# 1. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И МОДУЛИ
+# ==============================
 
 def drop_path(x, drop_prob: float = 0.0, training: bool = False):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks)."""
+    """
+    Стохастическая глубина (Stochastic Depth): отключает случайные ветви в residual-блоках.
+    """
     if drop_prob == 0.0 or not training:
         return x
     keep_prob = 1 - drop_prob
@@ -20,7 +23,9 @@ def drop_path(x, drop_prob: float = 0.0, training: bool = False):
         random_tensor.div_(keep_prob)
     return x * random_tensor
 
+
 class DropPath(nn.Module):
+    """Обёртка для drop_path в виде nn.Module."""
     def __init__(self, drop_prob=None):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
@@ -28,8 +33,11 @@ class DropPath(nn.Module):
     def forward(self, x):
         return drop_path(x, self.drop_prob, self.training)
 
+
 def trunc_normal_(tensor, mean=0., std=1.):
-    """Truncated normal initialization (без scipy)."""
+    """
+    Инициализация усечённым нормальным распределением (без scipy).
+    """
     size = tensor.shape
     tmp = tensor.new_empty(size + (4,)).normal_()
     valid = (tmp < 2) & (tmp > -2)
@@ -37,12 +45,16 @@ def trunc_normal_(tensor, mean=0., std=1.):
     tensor.data.copy_(tmp.gather(-1, ind).squeeze(-1))
     tensor.data.mul_(std).add_(mean)
 
-# ============= Основные модули PVTv2 =============
+
+# ==============================
+# 2. ОСНОВНЫЕ МОДУЛИ PVTv2
+# ==============================
 
 class DWConv(nn.Module):
+    """Глубинное свёрточное преобразование (Depthwise Convolution)."""
     def __init__(self, dim=768):
         super(DWConv, self).__init__()
-        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
+        self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, bias=True, groups=dim)
 
     def forward(self, x, H, W):
         B, N, C = x.shape
@@ -53,6 +65,7 @@ class DWConv(nn.Module):
 
 
 class Mlp(nn.Module):
+    """MLP с глубинной свёрткой (используется в PVTv2)."""
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
@@ -90,9 +103,12 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
+    """
+    Мультголовое внимание с уменьшением разрешения (Spatial Reduction Attention, SRA).
+    """
     def __init__(self, dim, num_heads=8, qkv_bias=False, sr_ratio=1):
         super().__init__()
-        assert dim % num_heads == 0, f"dim {dim} not divisible by num_heads {num_heads}."
+        assert dim % num_heads == 0, f"dim {dim} не делится на num_heads {num_heads}."
         self.dim = dim
         self.num_heads = num_heads
         self.sr_ratio = sr_ratio
@@ -148,6 +164,7 @@ class Attention(nn.Module):
 
 
 class Block(nn.Module):
+    """Transformer-блок PVTv2 с SRA и MLP."""
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  drop_path=0., sr_ratio=1):
         super().__init__()
@@ -175,6 +192,9 @@ class Block(nn.Module):
 
 
 class OverlapPatchEmbed(nn.Module):
+    """
+    Перекрывающееся патч-вложение (аналог Conv2d с padding).
+    """
     def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
         super().__init__()
         self.proj = nn.Conv2d(
@@ -200,22 +220,37 @@ class OverlapPatchEmbed(nn.Module):
         return x, H, W
 
 
-# ============= PVTv2 B5 =============
+# ==============================
+# 3. BACKBONE: PVTv2-B5
+# ==============================
 
 class pvt_v2_b5(nn.Module):
+    """
+    Реализация backbone PVTv2-B5 (без головы классификации).
+    Параметры соответствуют официальной спецификации PVTv2-B5.
+    """
+    # === Архитектурные параметры PVTv2-B5 (фиксированные) ===
+    DEPTHS = [3, 6, 40, 3]
+    EMBED_DIMS = [64, 128, 320, 512]
+    NUM_HEADS = [1, 2, 5, 8]
+    MLP_RATIOS = [4, 4, 4, 4]
+    SR_RATIOS = [8, 4, 2, 1]
+    DROP_PATH_RATE = 0.1
+
     def __init__(self, img_size=224, in_chans=3):
         super().__init__()
-        self.depths = [3, 6, 40, 3]
-        self.embed_dims = [64, 128, 320, 512]
-        self.num_heads = [1, 2, 5, 8]
-        self.mlp_ratios = [4, 4, 4, 4]
-        self.sr_ratios = [8, 4, 2, 1]
-        self.drop_path_rate = 0.1
+        # Используем константы класса
+        self.depths = self.DEPTHS
+        self.embed_dims = self.EMBED_DIMS
+        self.num_heads = self.NUM_HEADS
+        self.mlp_ratios = self.MLP_RATIOS
+        self.sr_ratios = self.SR_RATIOS
+        self.drop_path_rate = self.DROP_PATH_RATE
 
-        # stochastic depth
+        # Stochastic Depth: распределение вероятностей по глубине
         dpr = [x.item() for x in torch.linspace(0, self.drop_path_rate, sum(self.depths))]
 
-        # patch embeddings
+        # Патч-эмбеддинги для каждого уровня
         self.patch_embed1 = OverlapPatchEmbed(
             img_size=img_size, patch_size=7, stride=4, in_chans=in_chans, embed_dim=self.embed_dims[0]
         )
@@ -229,7 +264,7 @@ class pvt_v2_b5(nn.Module):
             img_size=img_size // 16, patch_size=3, stride=2, in_chans=self.embed_dims[2], embed_dim=self.embed_dims[3]
         )
 
-        # transformer blocks
+        # Transformer-блоки для каждого уровня
         cur = 0
         self.block1 = nn.ModuleList([
             Block(dim=self.embed_dims[0], num_heads=self.num_heads[0], mlp_ratio=self.mlp_ratios[0],
@@ -280,10 +315,13 @@ class pvt_v2_b5(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x):
+        """
+        Возвращает список feature maps для 4 уровней: [B, C, H/4, W/4], ..., [B, C, H/32, W/32]
+        """
         B = x.shape[0]
         outs = []
 
-        # stage 1
+        # Stage 1
         x, H, W = self.patch_embed1(x)
         for blk in self.block1:
             x = blk(x, H, W)
@@ -291,7 +329,7 @@ class pvt_v2_b5(nn.Module):
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
-        # stage 2
+        # Stage 2
         x, H, W = self.patch_embed2(x)
         for blk in self.block2:
             x = blk(x, H, W)
@@ -299,7 +337,7 @@ class pvt_v2_b5(nn.Module):
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
-        # stage 3
+        # Stage 3
         x, H, W = self.patch_embed3(x)
         for blk in self.block3:
             x = blk(x, H, W)
@@ -307,7 +345,7 @@ class pvt_v2_b5(nn.Module):
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
-        # stage 4
+        # Stage 4
         x, H, W = self.patch_embed4(x)
         for blk in self.block4:
             x = blk(x, H, W)
@@ -315,12 +353,17 @@ class pvt_v2_b5(nn.Module):
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
-        return outs  # [B, C1, H/4, W/4], [B, C2, H/8, W/8], ...
+        return outs
 
-# ----------------------------------------
-# 2. NECK: FPN (Feature Pyramid Network)
-# ----------------------------------------
+
+# ==============================
+# 4. NECK: FPN (Feature Pyramid Network)
+# ==============================
+
 class FPN(nn.Module):
+    """
+    Feature Pyramid Network для агрегации мультимасштабных признаков.
+    """
     def __init__(self, in_channels, out_channels, num_outs):
         super(FPN, self).__init__()
         assert num_outs == len(in_channels)
@@ -329,8 +372,8 @@ class FPN(nn.Module):
         self.fpn_convs = nn.ModuleList()
 
         for i in range(num_outs):
-            l_conv = nn.Conv2d(in_channels[i], out_channels, 1)
-            fpn_conv = nn.Conv2d(out_channels, out_channels, 3, padding=1)
+            l_conv = nn.Conv2d(in_channels[i], out_channels, kernel_size=1)
+            fpn_conv = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
             self.lateral_convs.append(l_conv)
             self.fpn_convs.append(fpn_conv)
 
@@ -343,12 +386,15 @@ class FPN(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, inputs):
+        """
+        Принимает список признаков из backbone, возвращает FPN-пирамиду.
+        """
         assert len(inputs) == len(self.lateral_convs)
 
-        # Lateral convolutions
+        # Латеральные свёртки
         laterals = [lateral_conv(x) for lateral_conv, x in zip(self.lateral_convs, inputs)]
 
-        # Top-down pathway
+        # Top-down путь с интерполяцией
         used_backbone_levels = len(laterals)
         for i in range(used_backbone_levels - 1, 0, -1):
             prev_shape = laterals[i - 1].shape[2:]
@@ -356,15 +402,19 @@ class FPN(nn.Module):
                 laterals[i], size=prev_shape, mode='nearest'
             )
 
-        # FPN convolutions
+        # Выходные свёртки FPN
         outs = [fpn_conv(lateral) for fpn_conv, lateral in zip(self.fpn_convs, laterals)]
-        return outs  # [B, 256, H/4, W/4], ..., [B, 256, H/32, W/32]
+        return outs
 
 
-# ----------------------------------------
-# 3. HEAD: FPNHead для бинарной сегментации
-# ----------------------------------------
+# ==============================
+# 5. HEAD: FPNHead для бинарной сегментации
+# ==============================
+
 class FPNHead(nn.Module):
+    """
+    Голова сегментации на основе FPN с масштабируемыми ветвями.
+    """
     def __init__(self, in_channels, in_index, feature_strides, channels, num_classes, out_channels,
                  dropout_ratio=0.1, align_corners=False):
         super(FPNHead, self).__init__()
@@ -374,7 +424,7 @@ class FPNHead(nn.Module):
         self.out_channels = out_channels
         self.align_corners = align_corners
 
-        # Конволюции для каждого уровня
+        # Ветви для каждого уровня FPN
         self.scale_heads = nn.ModuleList()
         for i in range(len(in_channels)):
             head_length = max(
@@ -386,11 +436,11 @@ class FPNHead(nn.Module):
                     nn.Conv2d(
                         in_channels[i] if k == 0 else channels,
                         channels,
-                        3,
+                        kernel_size=3,
                         padding=1
                     )
                 )
-                scale_head.append(nn.BatchNorm2d(channels))  # или nn.BatchNorm2d
+                scale_head.append(nn.BatchNorm2d(channels))
                 scale_head.append(nn.GELU())
                 if feature_strides[i] // (2 ** (k + 1)) == 4:
                     break
@@ -408,11 +458,13 @@ class FPNHead(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, inputs):
+        """
+        Агрегирует признаки с разных уровней FPN в один выход [B, 1, H/4, W/4].
+        """
         x = [inputs[i] for i in self.in_index]
 
         output = self.scale_heads[0](x[0])
         for i in range(1, len(self.scale_heads)):
-            # Интерполяция к размеру первого уровня (stride=4)
             interp_size = output.shape[2:]
             head_output = self.scale_heads[i](x[i])
             head_output = F.interpolate(
@@ -426,28 +478,33 @@ class FPNHead(nn.Module):
         if self.dropout is not None:
             output = self.dropout(output)
         output = self.conv_seg(output)
-        return output  # [B, 1, H/4, W/4]
+        return output
 
 
-# ----------------------------------------
-# 4. ПОЛНАЯ МОДЕЛЬ
-# ----------------------------------------
+# ==============================
+# 6. ПОЛНАЯ МОДЕЛЬ ДЛЯ СЕГМЕНТАЦИИ ПОДДЕЛОК
+# ==============================
+
 class PVTv2B5ForForgerySegmentation(nn.Module):
+    """
+    Полная модель для бинарной сегментации подделок:
+    PVTv2-B5 backbone + FPN neck + FPNHead.
+    """
     def __init__(self, num_classes=2, img_size=512):
         super().__init__()
-        assert num_classes == 2, "Поддерживаем только бинарную сегментацию"
+        assert num_classes == 2, "Поддерживается только бинарная сегментация"
 
-        # BackBone
+        # Backbone
         self.backbone = pvt_v2_b5(img_size=img_size, in_chans=3)
 
-        # Neck
+        # Neck (FPN)
         self.neck = FPN(
             in_channels=[64, 128, 320, 512],
             out_channels=256,
             num_outs=4
         )
 
-        # Head
+        # Голова сегментации
         self.decode_head = FPNHead(
             in_channels=[256, 256, 256, 256],
             in_index=[0, 1, 2, 3],
@@ -459,26 +516,25 @@ class PVTv2B5ForForgerySegmentation(nn.Module):
             align_corners=False
         )
 
-        # Для совместимости с mmsegmentation — выход в полный размер
         self.input_img_size = img_size
 
     def forward(self, x):
         """
         Вход:  [B, 3, H, W]
-        Выход: [B, 1, H, W] — logits для BCEWithLogitsLoss (sigmoid не применяется здесь!)
+        Выход: [B, 1, H, W] — logits (без sigmoid!)
         """
         H, W = x.shape[2], x.shape[3]
 
-        # Backbone
-        feats = self.backbone(x)  # 4 уровня
+        # Backbone → 4 уровня признаков
+        feats = self.backbone(x)
 
-        # Neck
-        fpn_feats = self.neck(feats)  # 4 уровня по 256 каналов
+        # Neck → FPN-пирамида
+        fpn_feats = self.neck(feats)
 
-        # Head -> [B, 1, H/4, W/4]
+        # Head → [B, 1, H/4, W/4]
         out = self.decode_head(fpn_feats)
 
-        # Восстанавливаем до исходного размера
+        # Восстановление до исходного размера
         out = F.interpolate(out, size=(H, W), mode='bilinear', align_corners=False)
 
-        return out  # [B, 1, H, W]
+        return out
