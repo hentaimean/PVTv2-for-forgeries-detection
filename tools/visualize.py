@@ -205,25 +205,29 @@ def validate_epoch(
                 writer.add_figure('Val/Predictions', fig, global_step=global_step)
                 plt.close(fig)
 
-    # --- 5. Анализ метрик при разных порогах ---
+    # --- 5. Анализ порогов: только каждые N валидаций ---
     best_iou_across_thresholds = 0.0
     best_threshold = 0.5
     metrics_by_threshold = {}
 
-    if hasattr(metrics_obj, 'compute_at_thresholds'):
-        metrics_by_threshold = metrics_obj.compute_at_thresholds()
+    current_val_idx = global_step // val_interval
+    if current_val_idx % 5 == 0:
+        print(f"\n[Валидация @ {global_step}] Выполняется анализ порогов...")
+        metrics_by_threshold = metrics_obj.compute_at_thresholds(
+            model, sampled_loader, device, thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]
+        )
         for th, metrics_th in metrics_by_threshold.items():
             if metrics_th['IoU_forgery'] > best_iou_across_thresholds:
                 best_iou_across_thresholds = metrics_th['IoU_forgery']
                 best_threshold = th
 
-    # Обновляет основные метрики на лучший найденный порог
-    if best_iou_across_thresholds > metrics.get('IoU_forgery', 0) + 1e-6:
-        # Фиксирует метрики для лучшего порога
-        metrics = metrics_by_threshold[best_threshold].copy()
-        metrics['best_threshold'] = best_threshold
-        print(
-            f"\n[Валидация @ {global_step}] Лучший порог: {best_threshold:.1f}, IoU: {best_iou_across_thresholds:.4f}")
+        # Обновляет основные метрики на лучший найденный порог
+        if best_iou_across_thresholds > metrics.get('IoU_forgery', 0) + 1e-6:
+            # Фиксирует метрики для лучшего порога
+            metrics = metrics_by_threshold[best_threshold].copy()
+            metrics['best_threshold'] = best_threshold
+            print(
+                f"\n[Валидация @ {global_step}] Лучший порог: {best_threshold:.1f}, IoU: {best_iou_across_thresholds:.4f}")
 
     # --- 6. Логирование в TensorBoard ---
     if writer is not None:
@@ -253,5 +257,7 @@ def validate_epoch(
     print(f"\n[Валидация @ {global_step}] (выборка: {len(sampled_indices)} изображений)")
     print(f"[Валидация @ {global_step}] Потери — {losses_str}")
     print(f"[Валидация @ {global_step}] Метрики — {metrics_str}")
+
+    metrics_obj.clear_temp()
 
     return metrics, avg_loss

@@ -56,31 +56,30 @@ class BinarySegmentationMetrics:
         self.tp = None
         self.fn = None
         self.tn = None
-        self.all_targets = None
+        self.temp_pred_logits =None
+        self.temp_targets = None
         self.default_threshold = threshold
         self.reset()
 
     def reset(self):
         """Сбрасывает накопленные значения."""
         self.tp = self.fp = self.fn = self.tn = 0
-        self.all_pred_logits = []
-        self.all_targets = []
+        # ВРЕМЕННЫЕ СПИСКИ — будут очищаться после валидации
+        self.temp_pred_logits = []
+        self.temp_targets = []
 
     def update(self, pred_logits, target):
-        """
-        Обновляет счётчики для default_threshold и сохраняет сырые данные для анализа.
-        """
-        # Сохраняет сырые логиты и таргеты для последующего анализа при разных порогах
-        self.all_pred_logits.append(pred_logits.detach().cpu())
-        self.all_targets.append(target.detach().cpu())
-
-        # Обновляет счётчики для порога по умолчанию
+        # Обновляет метрики для порога по умолчанию
         pred = (pred_logits.sigmoid() > self.default_threshold).float()
         target_bin = target.float()
         self.tp += (pred * target_bin).sum().item()
         self.fp += (pred * (1 - target_bin)).sum().item()
         self.fn += ((1 - pred) * target_bin).sum().item()
         self.tn += ((1 - pred) * (1 - target_bin)).sum().item()
+
+        # Сохраняет ТОЛЬКО для текущей валидации (если нужно)
+        self.temp_pred_logits.append(pred_logits.detach().cpu())
+        self.temp_targets.append(target.detach().cpu())
 
     def compute(self):
         """
@@ -90,7 +89,8 @@ class BinarySegmentationMetrics:
 
     def compute_at_thresholds(self, thresholds=None):
         """
-        Вычисляет метрики для списка порогов на всех сохранённых данных.
+        Вычисляет метрики при разных порогах НА ОСНОВЕ УЖЕ СОХРАНЁННЫХ ЛОГИТОВ.
+        Вызывается ТОЛЬКО ПОСЛЕ ПРОХОДА ПО ВСЕМ БАТЧАМ.
 
         Аргументы:
             thresholds (list): список порогов от 0 до 1.
@@ -100,12 +100,11 @@ class BinarySegmentationMetrics:
         """
         if thresholds is None:
             thresholds = ANALYSIS_THRESHOLDS
-        if not self.all_pred_logits:
+        if not self.temp_pred_logits:
             return {}
 
-        # Объединяет все батчи
-        all_logits = torch.cat(self.all_pred_logits, dim=0)
-        all_targets = torch.cat(self.all_targets, dim=0)
+        all_logits = torch.cat(self.temp_pred_logits, dim=0)
+        all_targets = torch.cat(self.temp_targets, dim=0)
 
         results = {}
         for th in thresholds:
@@ -120,3 +119,8 @@ class BinarySegmentationMetrics:
             results[th] = _compute_metrics_from_counts(tp, fp, fn, tn)
 
         return results
+
+    def clear_temp(self):
+        """Очищает временные данные после валидации."""
+        self.temp_pred_logits.clear()
+        self.temp_targets.clear()
