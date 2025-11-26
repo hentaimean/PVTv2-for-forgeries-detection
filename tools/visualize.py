@@ -218,7 +218,7 @@ def validate_epoch(
                 best_threshold = th
 
     # Обновляет основные метрики на лучший найденный порог
-    if best_iou_across_thresholds > metrics.get('IoU_forgery', 0):
+    if best_iou_across_thresholds > metrics.get('IoU_forgery', 0) + 1e-6:
         # Фиксирует метрики для лучшего порога
         metrics = metrics_by_threshold[best_threshold].copy()
         metrics['best_threshold'] = best_threshold
@@ -245,8 +245,10 @@ def validate_epoch(
 
     # --- 7. Вывод в терминал ---
     metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics.items() if k != 'best_threshold')
-    losses_str = (f"BCE: {avg_bce:.3f}, Dice: {avg_dice:.3f}, Focal: {avg_focal:.3f},"
-                  f"Total: {avg_loss:.3f}, best_th: {metrics['best_threshold']:.1f}")
+    losses_str = f"BCE: {avg_bce:.3f}, Dice: {avg_dice:.3f}, Focal: {avg_focal:.3f}, Total: {avg_loss:.3f}"
+
+    if 'best_threshold' in metrics:
+        losses_str += f", best_th: {metrics['best_threshold']:.2f}"
 
     print(f"\n[Валидация @ {global_step}] (выборка: {len(sampled_indices)} изображений)")
     print(f"[Валидация @ {global_step}] Потери — {losses_str}")
