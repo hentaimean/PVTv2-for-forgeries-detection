@@ -22,7 +22,7 @@ DEFAULT_MAX_VAL_VISUALIZATION_IMAGES = 16
 # Параметры валидации
 DEFAULT_VAL_SAMPLE_SIZE = 1000
 DEFAULT_VISUALIZE_EVERY_NTH_VALIDATION = 1  # визуализировать каждую N-ю валидацию
-VAL_INTERVAL = 5000
+VAL_INTERVAL = 3500
 
 
 # ==============================
