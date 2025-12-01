@@ -9,8 +9,8 @@ from model.pvtv2 import PVTv2B5ForForgerySegmentation
 
 # --- Путь к модели и изображению ---
 MODEL_PATH = "model/best_model_iou_0.3628_iter_180000.pth"
-IMAGE_PATH = "0_000000001295_2.tif"
-OUTPUT_PATH = "prediction_result.png"
+IMAGE_PATH = "test.tif"
+OUTPUT_PATH = "prediction.png"
 
 # --- Конфигурация ---
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -50,7 +50,7 @@ def main():
         images_dir=IMAGE_DIR,
         masks_dir=MASKS_DIR,
         transform=get_training_augmentation(),
-        fg_crop_prob=0.1,           # кропы с подделками
+        fg_crop_prob=1.0,           # кропы с подделками
         crop_size=(512, 512),
         use_albumentations=True
     )
@@ -163,6 +163,22 @@ def main():
     train_iter = iter(train_loader)
     metrics_val = BinarySegmentationMetrics(threshold=0.5)
 
+    # --- Проверка модели ---
+    print("Проверка модели перед обучением...")
+    with torch.no_grad():
+        sample_batch = next(iter(train_loader))
+        sample_image = sample_batch['image'].to(device)
+        sample_pred = model(sample_image)
+        print(f"Минимальный логит: {sample_pred.min().item():.4f}")
+        print(f"Максимальный логит: {sample_pred.max().item():.4f}")
+        print(f"Средний логит: {sample_pred.mean().item():.4f}")
+
+        # Только backbone
+        feats = model.backbone(sample_image)
+        print("Backbone output shapes:")
+        for i, f in enumerate(feats):
+            print(f"  Level {i}: {f.shape}, mean={f.mean().item():.4f}, std={f.std().item():.4f}")
+
     best_iou = 0.0
 
     pbar = tqdm(range(1, MAX_ITERS + 1), desc="Training", mininterval=1.0)
@@ -260,7 +276,7 @@ def main():
                 torch.save(model.state_dict(), best_path)
                 print(f"Новая лучшая модель сохранена: {os.path.basename(best_path)}")
 
-        # --- Сохранение ПОСЛЕДНЕЙ модели (каждые 10k) ---
+        # --- Сохранение ПОСЛЕДНЕЙ модели (каждые 5k) ---
         if iter_idx % SAVE_INTERVAL == 0:
             last_path = f"{checkpoint_dir}/last_model_iter_{iter_idx}.pth"
             torch.save(model.state_dict(), last_path)

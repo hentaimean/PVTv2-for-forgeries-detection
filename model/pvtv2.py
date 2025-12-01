@@ -459,6 +459,10 @@ class PVTv2B5ForForgerySegmentation(nn.Module):
             align_corners=False
         )
 
+        # Явная инициализация финального слоя головы
+        nn.init.zeros_(self.decode_head.conv_seg.weight)
+        nn.init.zeros_(self.decode_head.conv_seg.bias)
+
         # Для совместимости с mmsegmentation — выход в полный размер
         self.input_img_size = img_size
 
