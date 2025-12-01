@@ -210,11 +210,11 @@ def validate_epoch(
     best_threshold = 0.5
     metrics_by_threshold = {}
 
-    current_val_idx = global_step // val_interval
+    current_val_idx = global_step // VAL_INTERVAL
     if current_val_idx % 5 == 0:
         print(f"\n[Валидация @ {global_step}] Выполняется анализ порогов...")
         metrics_by_threshold = metrics_obj.compute_at_thresholds(
-            model, sampled_loader, device, thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]
+            thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]
         )
         for th, metrics_th in metrics_by_threshold.items():
             if metrics_th['IoU_forgery'] > best_iou_across_thresholds:
